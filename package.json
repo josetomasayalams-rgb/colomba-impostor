@@ -1,0 +1,32 @@
+{
+  "name": "colomba-impostor-online",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.16.0"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.mjs",
+    "dev": "node --disable-warning=ExperimentalWarning --watch server/index.mjs",
+    "test": "node --disable-warning=ExperimentalWarning --test tests/*.test.mjs",
+    "test:e2e": "playwright test",
+    "check": "node --check server/engine-core.mjs && node --check server/engine.mjs && node --check server/sqlite-store.mjs && node --check worker/index.js && node --check public/app.js",
+    "build": "node scripts/build.mjs",
+    "db:generate": "drizzle-kit generate",
+    "test:cloud": "CLOUD_TEST=1 COLOMBA_TEST_URL=http://127.0.0.1:4184 playwright test --config playwright.cloud.config.mjs"
+  },
+  "dependencies": {
+    "@fontsource/cormorant-garamond": "5.3.0",
+    "@fontsource/dm-sans": "5.3.0",
+    "@noble/hashes": "2.0.1",
+    "qrcode": "1.5.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "drizzle-kit": "0.31.10",
+    "drizzle-orm": "0.45.2",
+    "esbuild": "0.25.11",
+    "wrangler": "4.151.1"
+  }
+}

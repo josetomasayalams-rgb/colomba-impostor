@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.wrangler/
+.openai/deploy-state/
+data/
+evidence/
+test-results/
+playwright-report/
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+worker/assets.generated.mjs

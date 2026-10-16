@@ -1,0 +1,32 @@
+name: Verify game
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.22.3'
+          cache: npm
+      - run: npm ci
+      - run: npm run check && npm test && npm run build && node scripts/validate-artifact.mjs
+      - run: npx --no-install playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - run: npx --no-install wrangler d1 migrations apply DB --local
+      - name: Verify cloud backend and mobile flows
+        run: |
+          npx --no-install wrangler dev --ip 127.0.0.1 --port 4184 --inspector-port 0 --local > /tmp/colomba-worker.log 2>&1 &
+          worker_pid=$!
+          trap 'kill "$worker_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 45); do
+            if curl --fail --silent http://127.0.0.1:4184/api/health; then break; fi
+            sleep 1
+          done
+          npm run test:cloud
