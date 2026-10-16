@@ -4,7 +4,7 @@ El enlace de la aplicación será:
 
 https://josetomasayalams-rgb.github.io/colomba-impostor/
 
-La interfaz se publica desde el repositorio GitHub. Las salas necesitan un backend externo porque GitHub Pages solo aloja archivos estáticos. La implementación está preparada para Cloudflare Workers y D1 en una cuenta propia, sin depender de Sites y sin exigir una cuenta a los invitados.
+La interfaz se publica desde el repositorio GitHub. Las salas necesitan un backend externo porque GitHub Pages solo aloja archivos estáticos. El backend funciona con Cloudflare Workers y D1 en una cuenta propia, sin depender de Sites y sin exigir una cuenta a los invitados.
 
 ## Validación previa
 
@@ -23,7 +23,7 @@ Estas pruebas sirven la interfaz bajo `/colomba-impostor/` en un origen distinto
 
 ## Conectar la cuenta de alojamiento
 
-La conexión Cloudflare encontrada en este Mac estaba vencida. Es necesario volver a iniciar sesión antes de crear la base y publicar el servidor:
+La cuenta se autorizó para esta publicación. Si la sesión expira en una actualización futura, volver a iniciar sesión:
 
 ```sh
 npx --no-install wrangler login
@@ -60,4 +60,14 @@ Después de publicar, comprobar la URL `github.io` en una sesión sin acceso a C
 
 GitHub Pages y la API usan orígenes distintos. El navegador recibe un token opaco por sala y lo conserva localmente para recuperar su identidad. No guarda conceptos ni roles en ese almacenamiento. La API valida el token, el origen, el CSRF, los permisos y la versión de la partida; solo admite peticiones del origen configurado de GitHub Pages. Las invitaciones y el QR apuntan al enlace de GitHub, sin tokens en la URL.
 
-La publicación anterior en Sites se conserva sin cambios mientras se prepara el nuevo alojamiento. Las salas de esa publicación no se trasladan automáticamente a la nueva base. La URL nueva estará operativa una vez conectada la cuenta, publicada la API y completado el despliegue de Pages.
+La publicación anterior en Sites se conserva sin cambios mientras se prepara el nuevo alojamiento. Las salas de esa publicación no se trasladan automáticamente a la nueva base. La URL de GitHub utiliza la API independiente. Las actualizaciones de la interfaz se publican desde GitHub Actions; los cambios del servidor se publican con Wrangler en el mismo Worker y la misma base.
+
+## Comprobar el sitio publicado
+
+Las pruebas específicas de GitHub Pages pueden ejecutarse contra la URL pública sin levantar servidores locales:
+
+```sh
+COLOMBA_PAGES_URL=https://josetomasayalams-rgb.github.io/colomba-impostor/ COLOMBA_API_ORIGIN=https://URL_REAL_DE_LA_API.workers.dev npm run test:pages
+```
+
+Esas pruebas crean y cierran salas propias identificadas como QA. No deben apuntar a una sala que esté siendo usada por invitados.

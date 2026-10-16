@@ -1,5 +1,6 @@
 import { icon, shellSun } from './icons.js';
 import { API_ORIGIN } from './runtime.js';
+import { pollInterval } from './sync-timing.js';
 const homePath = new URL('./', import.meta.url).pathname;
 const externalApi = Boolean(API_ORIGIN && API_ORIGIN !== location.origin);
 let qrLoading = false;
@@ -69,7 +70,7 @@ function connect() {
   stream?.close(); if (!ui.room || ui.room.phase === 'closed') return;
   if (ui.room.transport === 'poll') {
     let cancelled = false, timer;
-    const poll = async () => { if (cancelled) return; if (!document.hidden && navigator.onLine) await sync(); if (!cancelled) timer = setTimeout(poll, ui.connected ? 1500 : 3000); };
+    const poll = async () => { if (cancelled) return; if (!document.hidden && navigator.onLine) await sync(); if (!cancelled) timer = setTimeout(poll, ui.connected ? pollInterval(ui.room?.members.length ?? 1) : 5000); };
     stream = { close() { cancelled = true; clearTimeout(timer); } };
     void poll(); return;
   }
@@ -367,7 +368,7 @@ let audio;
 function playSound() { try { const Audio = window.AudioContext ?? window.webkitAudioContext; if (!Audio) return; audio ??= new Audio(); if (audio.state !== 'running') return; const osc = audio.createOscillator(), gain = audio.createGain(); osc.frequency.value = 660; gain.gain.setValueAtTime(.025, audio.currentTime); gain.gain.exponentialRampToValueAtTime(.001, audio.currentTime + .2); osc.connect(gain); gain.connect(audio.destination); osc.start(); osc.stop(audio.currentTime + .22); } catch { /* El sonido es opcional. */ } }
 document.addEventListener('pointerdown', () => { if (ui.preferences.sounds) { try { const Audio = window.AudioContext ?? window.webkitAudioContext; if (Audio) { audio ??= new Audio(); void audio.resume(); } } catch { /* Opcional. */ } } });
 setInterval(updateTimers, 250);
-setInterval(() => { if (current() && !document.hidden && current().phase !== 'closed') void sync(); }, 20000);
+setInterval(() => { if (current() && current().transport !== 'poll' && !document.hidden && current().phase !== 'closed') void sync(); }, 20000);
 async function boot() {
   const invite = new URLSearchParams(location.search).get('sala')?.toUpperCase();
   const code = invite ?? stored('colomba.lastRoom', null);

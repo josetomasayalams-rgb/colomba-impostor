@@ -24,4 +24,8 @@ GitHub Actions comprueba cambios del repositorio. Publicar en GitHub no desplieg
 - 33 pruebas de backend, reglas y controles de origen aprobadas.
 - 2 recorridos adicionales aprobados con la interfaz en `/colomba-impostor/` y la API en un origen distinto: partida completa, QR con invitación a Pages, recarga conservando identidad, tarjetas y votos privados, rechazo de otros orígenes y permisos del anfitrión.
 - Los recorridos comprueban que no se envían cookies a la API y que no quedan roles ni conceptos en el almacenamiento local.
-- El backend independiente y el enlace GitHub Pages todavía requieren conectar la cuenta Cloudflare. La versión anterior publicada en Sites corresponde al commit anterior; no se ha sustituido ni eliminado.
+- La cuenta Cloudflare se conectó y se verificó el plan Free ($0). La publicación anterior de Sites se conserva como versión independiente; no se ha eliminado.
+
+## Ajuste para el plan gratuito
+
+35 pruebas de reglas/backend y controles de acceso aprobadas, incluidas dos comprobaciones del presupuesto de consultas automáticas y de protección frente a una frecuencia inválida. La actualización se adapta al número de participantes; se eliminó una consulta periódica redundante en el transporte online. Las pruebas de Pages siguen comprobando la partida completa y el ingreso tardío justo al comenzar las pistas, sin saltar turnos por una solicitud duplicada.

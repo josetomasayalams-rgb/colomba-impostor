@@ -2,9 +2,9 @@
 
 Juego para celebrar el baby shower de Colomba. Interfaz para celular, entre 4 y 24 jugadores, un impostor y conceptos relacionados con su llegada.
 
-**Destino de publicación:** https://josetomasayalams-rgb.github.io/colomba-impostor/
+**Jugar:** https://josetomasayalams-rgb.github.io/colomba-impostor/
 
-La migración a GitHub Pages está preparada y probada localmente. Falta reconectar la cuenta de Cloudflare para publicar el backend independiente y habilitar el enlace final. Consulta [DEPLOY_GITHUB.md](DEPLOY_GITHUB.md). La publicación anterior sigue disponible mientras se completa ese paso.
+La interfaz se publica desde este repositorio en GitHub Pages. Las salas funcionan en Cloudflare Workers y D1, en una cuenta propia. Los invitados entran directamente, sin cuenta de GitHub, Cloudflare ni ChatGPT. Consulta [DEPLOY_GITHUB.md](DEPLOY_GITHUB.md) para las siguientes publicaciones.
 
 1. El anfitrión abre el enlace, pulsa **Crear una sala** y escribe su nombre.
 2. Comparte el QR, enlace de invitación o código de seis caracteres.
@@ -23,14 +23,14 @@ El servidor funciona en la nube: **el Mac puede estar apagado**. El anfitrión d
 - Votos privados, sin voto propio. Se publican los totales al terminar.
 - Empate: segunda votación entre las personas empatadas; si persiste, gana el impostor.
 - Pausa, reanudación, ingreso tardío y cierre de sala.
-- QR real, invitaciones HTTPS y sincronización automática cada 1,5 segundos aproximadamente.
+- QR real, invitaciones HTTPS y sincronización automática entre 1,5 y 6,5 segundos según el tamaño del grupo.
 - Ajustes de texto grande, movimiento reducido y sonido opcional.
 
 ## Código y alojamiento
 
 Repositorio: https://github.com/josetomasayalams-rgb/colomba-impostor
 
-La interfaz se prepara para GitHub Pages y el backend para Cloudflare Workers/D1 en una cuenta propia. GitHub conserva el código, ejecuta las pruebas y publica la interfaz; las salas se procesan en el servidor externo. La nueva configuración no necesita Sites. La publicación anterior de Sites se conserva hasta terminar la conexión del nuevo alojamiento.
+La interfaz se aloja en GitHub Pages y el backend en Cloudflare Workers/D1 en una cuenta propia. GitHub conserva el código, ejecuta las pruebas y publica la interfaz; las salas se procesan en el servidor externo. Esta configuración funciona sin Sites. La publicación anterior se conserva como versión independiente.
 
 `server/engine-core.mjs` contiene las reglas compartidas por la versión local y la nube. La versión local usa SQLite; `worker/` adapta las solicitudes a D1. Cada cambio de una sala se confirma con una actualización condicional por versión; ante concurrencia, se vuelve a leer y se validan nuevamente los permisos y las reglas. El estado del juego y los hashes de sesión se guardan juntos para evitar escrituras parciales.
 
@@ -70,3 +70,9 @@ npm run test:cloud
 Las pruebas de la nube usan exclusivamente la base local de Wrangler. No apuntes las pruebas de carga a una sala real. El despliegue independiente aplica las migraciones de `drizzle/` a la base Cloudflare elegida antes de publicar. El archivo `.openai/hosting.json` conserva la identidad del alojamiento anterior para recuperación; no se utiliza para el nuevo despliegue. No se deben incluir tokens en el repositorio. `scripts/build.mjs` genera el Worker autocontenido; `scripts/validate-artifact.mjs` comprueba el resultado.
 
 El workflow de GitHub comprueba ambos servidores y la interfaz bajo el subdirectorio del proyecto. Publica Pages cuando está configurada la variable `COLOMBA_API_ORIGIN` con la API ya desplegada; mientras falte esa dirección no publica una versión desconectada. Los cambios del Worker se publican con Wrangler siguiendo `DEPLOY_GITHUB.md`.
+
+## Plan y consumo
+
+El 16 de octubre de 2026 se comprobó en el panel de la cuenta que el plan activo era **Workers Free ($0)**. Esta publicación no contrata ni activa un plan pagado. El plan tiene límites diarios compartidos con las demás aplicaciones de la cuenta; consulta los [límites oficiales de Cloudflare](https://developers.cloudflare.com/workers/platform/limits/).
+
+La frecuencia de consulta se adapta al tamaño de la sala y se detiene en pestañas ocultas. Con entre 4 y 25 participantes conectados, las consultas automáticas de una sala durante seis horas se mantienen por debajo de 90.000 solicitudes en la estimación conservadora comprobada por las pruebas. Las acciones del juego, otras salas y las otras aplicaciones consumen adicionalmente el cupo compartido. El plan gratuito no equivale a uso ilimitado.

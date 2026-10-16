@@ -1,7 +1,7 @@
 import { test, expect, request as apiRequest } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
-const front = 'http://127.0.0.1:4187/colomba-impostor/';
-const api = 'http://127.0.0.1:4184';
+const front = process.env.COLOMBA_PAGES_URL || 'http://127.0.0.1:4187/colomba-impostor/';
+const api = process.env.COLOMBA_API_ORIGIN || 'http://127.0.0.1:4184';
 async function apiState(page, code) {
   return page.evaluate(async ({ api, code }) => {
     const sessions = JSON.parse(localStorage.getItem('colomba.github.sessions') || '{}');
