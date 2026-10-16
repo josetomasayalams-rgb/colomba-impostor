@@ -2,7 +2,9 @@
 
 Juego para celebrar el baby shower de Colomba. Interfaz para celular, entre 4 y 24 jugadores, un impostor y conceptos relacionados con su llegada.
 
-**Jugar:** https://colomba-impostor.jayala2407.chatgpt.site
+**Destino de publicación:** https://josetomasayalams-rgb.github.io/colomba-impostor/
+
+La migración a GitHub Pages está preparada y probada localmente. Falta reconectar la cuenta de Cloudflare para publicar el backend independiente y habilitar el enlace final. Consulta [DEPLOY_GITHUB.md](DEPLOY_GITHUB.md). La publicación anterior sigue disponible mientras se completa ese paso.
 
 1. El anfitrión abre el enlace, pulsa **Crear una sala** y escribe su nombre.
 2. Comparte el QR, enlace de invitación o código de seis caracteres.
@@ -10,7 +12,7 @@ Juego para celebrar el baby shower de Colomba. Interfaz para celular, entre 4 y 
 4. Con al menos cuatro jugadores, el anfitrión inicia la ronda.
 5. Cada persona mira su tarjeta en privado, confirma y da pistas en voz alta. Después conversan y votan desde el celular.
 
-El servidor funciona en la nube: **el Mac puede estar apagado**. El anfitrión debe conservar su navegador y sus cookies para mantener el control de esa sala. Puede recuperar la sala recargando la página en ese mismo navegador. Los participantes deben estar juntos para escuchar las pistas; la aplicación no transmite audio.
+El servidor funciona en la nube: **el Mac puede estar apagado**. El anfitrión debe conservar su navegador y sus datos locales para mantener el control de esa sala. Puede recuperar la sala recargando la página en ese mismo navegador. Los participantes deben estar juntos para escuchar las pistas; la aplicación no transmite audio.
 
 ## Reglas y funciones
 
@@ -28,11 +30,11 @@ El servidor funciona en la nube: **el Mac puede estar apagado**. El anfitrión d
 
 Repositorio: https://github.com/josetomasayalams-rgb/colomba-impostor
 
-El sitio público se aloja en Sites sobre Cloudflare Workers. Las salas, roles, votos y sesiones se guardan en D1. GitHub conserva el código y ejecuta las pruebas; el sitio no utiliza GitHub Pages, que sirve contenido estático y no ejecuta este backend.
+La interfaz se prepara para GitHub Pages y el backend para Cloudflare Workers/D1 en una cuenta propia. GitHub conserva el código, ejecuta las pruebas y publica la interfaz; las salas se procesan en el servidor externo. La nueva configuración no necesita Sites. La publicación anterior de Sites se conserva hasta terminar la conexión del nuevo alojamiento.
 
 `server/engine-core.mjs` contiene las reglas compartidas por la versión local y la nube. La versión local usa SQLite; `worker/` adapta las solicitudes a D1. Cada cambio de una sala se confirma con una actualización condicional por versión; ante concurrencia, se vuelve a leer y se validan nuevamente los permisos y las reglas. El estado del juego y los hashes de sesión se guardan juntos para evitar escrituras parciales.
 
-Las tarjetas solo se entregan al navegador de su participante. Las cookies son HttpOnly, SameSite=Strict y Secure en HTTPS; las acciones comprueban origen, intención y token CSRF. Los archivos de servidor, bases de datos, credenciales y registros no se sirven como recursos públicos. Los recursos visuales y tipografías se incluyen en el propio sitio.
+Las tarjetas solo se entregan al navegador de su participante. En el despliegue de GitHub, el navegador usa un token opaco por sala y la API no depende de cookies de terceros. Los conceptos y roles no se guardan en el almacenamiento local. El acceso desde un mismo origen conserva cookies HttpOnly, SameSite=Strict y Secure en HTTPS. Las acciones comprueban origen, intención y token CSRF. Los archivos de servidor, bases de datos, credenciales y registros no se sirven como recursos públicos. Los recursos visuales y tipografías se incluyen en el propio sitio.
 
 Las salas vencen tras 24 horas sin cambios, o 24 horas después de cerrarse. Las filas vencidas se eliminan al crear una sala nueva. La presencia es orientativa: una desconexión puede tardar hasta 40 segundos en reflejarse. La seguridad no impide que una persona muestre voluntariamente su tarjeta ni controla el dispositivo del anfitrión.
 
@@ -65,6 +67,6 @@ npm run test:e2e
 npm run test:cloud
 ```
 
-Las pruebas de la nube usan exclusivamente la base local de Wrangler. No apuntes las pruebas de carga a una sala real. El proceso de publicación de Sites aplica las migraciones incluidas en `drizzle/` antes de publicar el Worker. Se debe conservar el `project_id` de `.openai/hosting.json`; no se deben incluir tokens en el repositorio. `scripts/build.mjs` genera el Worker autocontenido; `scripts/validate-artifact.mjs` comprueba el resultado.
+Las pruebas de la nube usan exclusivamente la base local de Wrangler. No apuntes las pruebas de carga a una sala real. El despliegue independiente aplica las migraciones de `drizzle/` a la base Cloudflare elegida antes de publicar. El archivo `.openai/hosting.json` conserva la identidad del alojamiento anterior para recuperación; no se utiliza para el nuevo despliegue. No se deben incluir tokens en el repositorio. `scripts/build.mjs` genera el Worker autocontenido; `scripts/validate-artifact.mjs` comprueba el resultado.
 
-El despliegue de Sites se realiza mediante su integración autenticada. Un push a GitHub ejecuta CI; por sí solo no publica una nueva versión del sitio.
+El workflow de GitHub comprueba ambos servidores y la interfaz bajo el subdirectorio del proyecto. Publica Pages cuando está configurada la variable `COLOMBA_API_ORIGIN` con la API ya desplegada; mientras falte esa dirección no publica una versión desconectada. Los cambios del Worker se publican con Wrangler siguiendo `DEPLOY_GITHUB.md`.

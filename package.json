@@ -1,6 +1,6 @@
 {
   "name": "colomba-impostor-online",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -11,10 +11,12 @@
     "dev": "node --disable-warning=ExperimentalWarning --watch server/index.mjs",
     "test": "node --disable-warning=ExperimentalWarning --test tests/*.test.mjs",
     "test:e2e": "playwright test",
-    "check": "node --check server/engine-core.mjs && node --check server/engine.mjs && node --check server/sqlite-store.mjs && node --check worker/index.js && node --check public/app.js",
+    "check": "node --check server/engine-core.mjs && node --check server/engine.mjs && node --check server/sqlite-store.mjs && node --check worker/index.js && node --check public/app.js && node --check worker/access.mjs && node --check scripts/build-pages.mjs",
     "build": "node scripts/build.mjs",
     "db:generate": "drizzle-kit generate",
-    "test:cloud": "CLOUD_TEST=1 COLOMBA_TEST_URL=http://127.0.0.1:4184 playwright test --config playwright.cloud.config.mjs"
+    "test:cloud": "CLOUD_TEST=1 COLOMBA_TEST_URL=http://127.0.0.1:4184 playwright test --config playwright.cloud.config.mjs",
+    "build:pages": "node scripts/build-pages.mjs",
+    "test:pages": "playwright test --config playwright.pages.config.mjs"
   },
   "dependencies": {
     "@fontsource/cormorant-garamond": "5.3.0",

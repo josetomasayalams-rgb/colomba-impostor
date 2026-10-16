@@ -4,6 +4,7 @@ import { hash } from '../server/portable.mjs';
 import QR from 'qrcode/lib/core/qrcode.js';
 import SVG from 'qrcode/lib/renderer/svg-tag.js';
 import { assets } from './assets.generated.mjs';
+import { allowedOrigin, bearerMode, sessionToken as tokenOf, corsHeaders, validPreflight, frontendUrl } from './access.mjs';
 
 const security = {
   'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY',
@@ -16,7 +17,6 @@ function response(value, status = 200, headers = {}) {
     status, headers: { ...security, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers },
   });
 }
-function tokenOf(request, code) { const key = `colomba_${code}=`; return (request.headers.get('cookie') ?? '').split(';').map(s => s.trim()).find(s => s.startsWith(key))?.slice(key.length); }
 function cookie(code, token, secure) { return `colomba_${code}=${token}; Path=/api/rooms/${code}; HttpOnly; SameSite=Strict; Max-Age=${token ? 86400 : 0}${secure ? '; Secure' : ''}`; }
 function equal(a, b) { if (typeof a !== 'string' || typeof b !== 'string') return false; const ah = hash(a), bh = hash(b); let result = 0; for (let i = 0; i < ah.length; i++) result |= ah.charCodeAt(i) ^ bh.charCodeAt(i); return result === 0; }
 async function readBody(request) {
@@ -37,7 +37,7 @@ async function rate(db, request, category, max, period) {
 }
 function snapshot(engine, code, auth, origin, connected) {
   const state = engine.state(code, auth.member.id, id => connected.has(id));
-  state.me.csrf = auth.csrf; state.shareUrl = `${origin}/?sala=${code}`; state.transport = 'poll';
+  state.me.csrf = auth.csrf; state.shareUrl = `${origin}?sala=${code}`; state.transport = 'poll';
   return state;
 }
 async function presence(db, code, id, now) {
@@ -46,7 +46,7 @@ async function presence(db, code, id, now) {
   const rows = await db.prepare('SELECT member_id FROM presence WHERE code = ? AND last_seen > ?').bind(code, now - 40000).all();
   return new Set(rows.results.map(row => row.member_id));
 }
-async function createRoom(db, body, origin, secure) {
+async function createRoom(db, body, origin, secure, tokenMode) {
   const now = Date.now();
   await db.batch([
     db.prepare('DELETE FROM rooms WHERE expires_at <= ?').bind(now),
@@ -64,11 +64,13 @@ async function createRoom(db, body, origin, secure) {
       continue;
     }
     const connected = await presence(db, session.code, session.memberId, now);
-    return response(snapshot(engine, session.code, { member: { id: session.memberId }, csrf: session.csrf }, origin, connected), 201, { 'Set-Cookie': cookie(session.code, session.token, secure) });
+    const state = snapshot(engine, session.code, { member: { id: session.memberId }, csrf: session.csrf }, origin, connected);
+    if (tokenMode) state.sessionToken = session.token;
+    return response(state, 201, tokenMode ? {} : { 'Set-Cookie': cookie(session.code, session.token, secure) });
   }
   throw new GameError(503, 'No pudimos crear la sala. Inténtalo nuevamente.');
 }
-async function roomRequest(request, db, code, action, body, url) {
+async function roomRequest(request, db, code, action, body, url, env) {
   // A single conditional UPDATE commits room state and token hashes together.
   // Conflicts reload the authoritative row and revalidate all permissions and rules.
   for (let attempt = 0; attempt < 40; attempt++) {
@@ -95,15 +97,17 @@ async function roomRequest(request, db, code, action, body, url) {
         continue;
       }
     }
-    const headers = session ? { 'Set-Cookie': cookie(code, session.token, url.protocol === 'https:') } : {};
+    const tokenMode = bearerMode(request, env);
+    const headers = session && !tokenMode ? { 'Set-Cookie': cookie(code, session.token, url.protocol === 'https:') } : {};
     if (left) {
       await db.prepare('DELETE FROM presence WHERE code = ? AND member_id = ?').bind(code, auth.member.id).run();
-      return response({ left: true }, 200, { 'Set-Cookie': cookie(code, '', url.protocol === 'https:') });
+      return response({ left: true }, 200, tokenMode ? {} : { 'Set-Cookie': cookie(code, '', url.protocol === 'https:') });
     }
     if (value) return response(value);
     if (action === 'catalog') return response(engine.catalog(code, auth.member.id));
     const connected = await presence(db, code, auth.member.id, Date.now());
-    const state = snapshot(engine, code, auth, url.origin, connected);
+    const state = snapshot(engine, code, auth, frontendUrl(env, url).href, connected);
+    if (session && tokenMode) state.sessionToken = session.token;
     if (action === 'qr') {
       if (!state.me.isHost) throw new GameError(403, 'Solo el anfitrión puede abrir esta invitación.');
       const qr = SVG.render(QR.create(state.shareUrl, { errorCorrectionLevel: 'M' }), { margin: 3, width: 480, color: { dark: '#2F493FFF', light: '#F8F1E7FF' } });
@@ -113,14 +117,14 @@ async function roomRequest(request, db, code, action, body, url) {
   }
   throw new GameError(409, 'La sala está recibiendo muchas acciones. Vuelve a intentarlo.', 'BUSY_ROOM');
 }
-export default {
+const handler = {
   async fetch(request, env) {
     try {
       const url = new URL(request.url), path = decodeURIComponent(url.pathname);
       if (path === '/api/health' && request.method === 'GET') {
         if (!env.DB) throw new Error('Database binding unavailable');
         await env.DB.prepare('SELECT code FROM rooms LIMIT 1').first();
-        return response({ ok: true, app: 'colomba', hosting: 'cloud', version: '1.1.0' });
+        return response({ ok: true, app: 'colomba', hosting: 'cloud', version: '1.2.0' });
       }
       if (!path.startsWith('/api/')) {
         if (!['GET', 'HEAD'].includes(request.method)) throw new GameError(405, 'Esta acción no está disponible.');
@@ -133,22 +137,40 @@ export default {
       const db = typeof env.DB.withSession === 'function' ? env.DB.withSession('first-primary') : env.DB;
       let body;
       if (request.method === 'POST') {
-        if (request.headers.get('origin') !== url.origin || request.headers.get('x-colomba-intent') !== 'play') throw new GameError(403, 'Esta solicitud no viene de la app.', 'ORIGIN_REJECTED');
+        if (!request.headers.get('origin') || !allowedOrigin(request, env) || request.headers.get('x-colomba-intent') !== 'play') throw new GameError(403, 'Esta solicitud no viene de la app.', 'ORIGIN_REJECTED');
         body = await readBody(request);
         await rate(db, request, 'actions', 600, 60000);
       }
       if (path === '/api/config' && request.method === 'GET') return response({ urls: { local: url.origin, network: [] }, hosting: 'cloud', maxPlayers: 24, minPlayers: 4 });
-      if (path === '/api/rooms' && request.method === 'POST') { await rate(db, request, 'create', 10, 600000); return await createRoom(db, body, url.origin, url.protocol === 'https:'); }
+      if (path === '/api/rooms' && request.method === 'POST') { await rate(db, request, 'create', 10, 600000); return await createRoom(db, body, frontendUrl(env, url).href, url.protocol === 'https:', bearerMode(request, env)); }
       const match = /^\/api\/rooms\/([A-Z2-9]{6})(?:\/([a-z-]+))?$/.exec(path);
       if (!match) throw new GameError(404, 'No encontramos esta dirección.');
       const [, code, action] = match;
       if (action === 'join' && request.method === 'POST') await rate(db, request, 'join', 100, 600000);
       if (action === 'info' && request.method === 'GET') await rate(db, request, 'lookup', 150, 600000);
-      return await roomRequest(request, db, code, action, body, url);
+      return await roomRequest(request, db, code, action, body, url, env);
     } catch (error) {
       const status = error instanceof GameError ? error.status : 500;
       if (status === 500) console.error('Cloud request failed:', error.message);
       return response({ error: status === 500 ? 'No pudimos completar la acción. Inténtalo nuevamente.' : error.message, code: error.code ?? 'INTERNAL_ERROR' }, status, status === 429 ? { 'Retry-After': '60' } : {});
+    }
+  },
+};
+
+export default {
+  async fetch(request, env) {
+    const isApi = new URL(request.url).pathname.startsWith('/api/');
+    try {
+      if (isApi && !allowedOrigin(request, env)) return response({ error: 'Esta solicitud no viene de la app.', code: 'ORIGIN_REJECTED' }, 403);
+      if (isApi && request.method === 'OPTIONS') return response(null, validPreflight(request) ? 204 : 403, corsHeaders(request, env));
+      const result = await handler.fetch(request, env);
+      if (!isApi) return result;
+      const headers = new Headers(result.headers);
+      for (const [name, value] of Object.entries(corsHeaders(request, env))) headers.set(name, value);
+      return new Response(result.body, { status: result.status, headers });
+    } catch (error) {
+      console.error('API policy failed:', error.message);
+      return response({ error: 'No pudimos completar la acción. Inténtalo nuevamente.', code: 'INTERNAL_ERROR' }, 500);
     }
   },
 };

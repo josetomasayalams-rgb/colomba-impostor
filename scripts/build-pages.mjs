@@ -1,0 +1,17 @@
+import { cp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+const supplied = process.env.COLOMBA_API_ORIGIN;
+if (!supplied) throw new Error('Set COLOMBA_API_ORIGIN to the deployed backend origin before building GitHub Pages.');
+const api = new URL(supplied);
+const local = ['localhost', '127.0.0.1', '[::1]'].includes(api.hostname);
+if ((api.protocol !== 'https:' && !(local && api.protocol === 'http:')) || api.pathname !== '/' || api.username || api.password || api.search || api.hash) throw new Error('COLOMBA_API_ORIGIN must be an HTTPS origin without a path.');
+const output = 'pages';
+await rm(output, { recursive: true, force: true }); await mkdir(output, { recursive: true });
+await cp('public', output, { recursive: true });
+await cp('licenses', `${output}/licenses`, { recursive: true });
+await writeFile(`${output}/runtime.js`, `export const API_ORIGIN = ${JSON.stringify(api.origin)};\n`);
+let html = await readFile(`${output}/index.html`, 'utf8');
+const policy = `default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self' ${api.origin}; object-src 'none'; base-uri 'none'; form-action 'self'`;
+html = html.replace('<meta charset="utf-8">', `<meta charset="utf-8">\n    <meta http-equiv="Content-Security-Policy" content="${policy}">`);
+await writeFile(`${output}/index.html`, html);
+await writeFile(`${output}/.nojekyll`, '');
+console.log(`Built GitHub Pages frontend with backend ${api.origin}.`);

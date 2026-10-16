@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 const data = mkdtempSync(join(tmpdir(), 'colomba-browser-'));
 export default defineConfig({
-  testDir: './e2e', testIgnore: '**/cloud-api.spec.mjs', fullyParallel: false, workers: 1, timeout: 90000,
+  testDir: './e2e', testIgnore: ['**/cloud-api.spec.mjs', '**/pages.spec.mjs'], fullyParallel: false, workers: 1, timeout: 90000,
   expect: { timeout: 10000 },
   use: { baseURL: 'http://127.0.0.1:4183', viewport: { width: 393, height: 852 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, actionTimeout: 10000, trace: 'retain-on-failure', screenshot: 'only-on-failure' },
   reporter: [['list'], ['json', { outputFile: 'evidence/e2e-results.json' }]],

@@ -12,3 +12,7 @@ playwright-report/
 .DS_Store
 *.log
 worker/assets.generated.mjs
+pages/
+wrangler.production.json
+.dev.vars
+.dev.vars.*

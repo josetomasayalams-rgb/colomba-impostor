@@ -1,11 +1,16 @@
 import { icon, shellSun } from './icons.js';
+import { API_ORIGIN } from './runtime.js';
+const homePath = new URL('./', import.meta.url).pathname;
+const externalApi = Boolean(API_ORIGIN && API_ORIGIN !== location.origin);
+let qrLoading = false;
 
 const $ = s => document.querySelector(s);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const categories = [{ id: 'baby', name: 'El mundo de Colomba', description: 'Cuna, chupete, babero y más', icon: 'carriage' }, { id: 'arrival', name: 'Preparando su llegada', description: 'Regalos, mantas y preparativos', icon: 'gift' }, { id: 'family', name: 'Nuestra familia', description: 'Agrega sus propias palabras', icon: 'home' }];
 function stored(name, fallback) { try { return JSON.parse(localStorage.getItem(name)) ?? fallback; } catch { return fallback; } }
-function store(name, value) { try { localStorage.setItem(name, JSON.stringify(value)); } catch { /* La sesión de juego usa cookies, no este almacenamiento opcional. */ } }
+function store(name, value) { try { localStorage.setItem(name, JSON.stringify(value)); } catch { /* El navegador puede tener el almacenamiento local deshabilitado. */ } }
 const ui = { view: 'welcome', back: 'welcome', room: null, secret: null, hostPanel: false, modal: null, busy: false, error: '', connected: true, clockOffset: 0, code: '', query: '', filter: 'baby', catalog: null, selectedVote: null, preferences: stored('colomba.preferences', { sounds: false, reduce: matchMedia('(prefers-reduced-motion: reduce)').matches, large: false }), form: { name: '', color: 0, vueltas: 2, seconds: 20, playing: true, categories: ['baby'] }, edit: null };
+const sessions = stored('colomba.github.sessions', {});
 let stream, toastTimer, syncing = false, syncAgain = false, lastLayout = '', modalFocusKey = '';
 const current = () => ui.room;
 const active = s => ['reveal', 'clues', 'discussion', 'voting', 'tie', 'paused'].includes(s.phase);
@@ -14,11 +19,24 @@ const nameOf = id => ui.room?.round?.players.find(p => p.id === id)?.name ?? ui.
 const personOf = id => ui.room?.round?.players.find(p => p.id === id) ?? ui.room?.members.find(p => p.id === id);
 function toast(message, error = false) { clearTimeout(toastTimer); const node = $('#toast'); node.textContent = message; node.className = `toast${error ? ' error' : ''}`; node.hidden = false; toastTimer = setTimeout(() => { node.hidden = true; }, 5000); }
 async function request(path, body, options = {}) {
-  const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 10000);
+  const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), externalApi ? 30000 : 10000);
   try {
-    const response = await fetch(path, { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', headers: body === undefined ? {} : { 'Content-Type': 'application/json', 'X-Colomba-Intent': 'play', ...(ui.room?.me.csrf ? { 'X-CSRF-Token': ui.room.me.csrf } : {}) }, body: body === undefined ? undefined : JSON.stringify(body), signal: controller.signal });
-    const data = await response.json();
+    const code = /^\/api\/rooms\/([A-Z2-9]{6})(?:\/|$)/.exec(path)?.[1];
+    const session = code && sessions[code];
+    const headers = body === undefined ? {} : { 'Content-Type': 'application/json', 'X-Colomba-Intent': 'play', ...(ui.room?.me.csrf ? { 'X-CSRF-Token': ui.room.me.csrf } : {}) };
+    if (externalApi) {
+      headers['X-Colomba-Session'] = 'token';
+      if (session?.expiresAt > Date.now()) headers.Authorization = `Bearer ${session.token}`;
+    }
+    const response = await fetch(API_ORIGIN ? new URL(path, API_ORIGIN) : path, { method: body === undefined ? 'GET' : 'POST', credentials: externalApi ? 'omit' : 'same-origin', cache: 'no-store', headers, body: body === undefined ? undefined : JSON.stringify(body), signal: controller.signal });
+    const data = response.ok && options.responseType === 'text' ? await response.text() : await response.json();
     if (!response.ok) { const e = new Error(data.error ?? 'No pudimos completar la acción.'); e.status = response.status; e.code = data.code; throw e; }
+    if (externalApi && data?.sessionToken) {
+      for (const key of Object.keys(sessions)) if (sessions[key].expiresAt <= Date.now()) delete sessions[key];
+      sessions[data.code] = { token: data.sessionToken, expiresAt: Date.now() + 86400000 };
+      store('colomba.github.sessions', sessions); delete data.sessionToken;
+    }
+    if (externalApi && data?.left && code) { delete sessions[code]; store('colomba.github.sessions', sessions); }
     return data;
   } catch (e) { if (!e.status) { e.message = 'No logramos conectarnos. Revisa la conexión e inténtalo otra vez.'; if (ui.room) ui.connected = false; } throw e; }
   finally { clearTimeout(timeout); }
@@ -60,7 +78,7 @@ function connect() {
   stream.onopen = () => { ui.connected = true; void sync(); };
   stream.onerror = () => { ui.connected = false; ui.secret = null; render(); };
 }
-async function enter(state, view = 'room') { applyState(state); ui.view = view; ui.secret = null; ui.hostPanel = false; ui.error = ''; history.replaceState(null, '', `/?sala=${state.code}`); connect(); render(); }
+async function enter(state, view = 'room') { applyState(state); ui.view = view; ui.secret = null; ui.hostPanel = false; ui.error = ''; history.replaceState(null, '', `${homePath}?sala=${state.code}`); connect(); render(); }
 async function mutate(action, body = {}, context = ctx()) {
   const state = await request(`/api/rooms/${context.code}/${action}`, { ...context, ...body });
   if (action !== 'leave') applyState(state);
@@ -107,9 +125,19 @@ function renderPreferences() {
   const p = ui.preferenceDraft ?? ui.preferences;
   return page(`${topbar()}${heading('A tu ritmo', 'Pequeños ajustes para jugar cómodo.')}<form class="form-stack" data-form="preferences"><div class="settings-box"><div class="setting-row"><span>Sonidos<small>Avisos suaves entre etapas.</small></span>${toggle('sounds', 'Sonidos', p.sounds)}</div><div class="setting-row"><span>Reducir animaciones<small>Transiciones más tranquilas.</small></span>${toggle('reduce', 'Reducir animaciones', p.reduce)}</div><div class="setting-row"><span>Texto más grande<small>Mayor comodidad al leer.</small></span>${toggle('large', 'Texto más grande', p.large)}</div></div>${textButton(`${icon('help')}Cómo jugar`, 'rules')}<div class="push-bottom"><button class="btn primary">Guardar ajustes</button></div></form>`);
 }
+async function loadQr(code) {
+  if (qrLoading) return;
+  qrLoading = true;
+  try {
+    const svg = await request(`/api/rooms/${code}/qr`, undefined, { responseType: 'text' });
+    if (ui.room?.code === code) { ui.qr = { code, src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}` }; render(); }
+  } catch (e) { toast(e.message, true); }
+  finally { qrLoading = false; }
+}
 function renderInvite() {
   const s = current();
-  return page(`${topbar('room')}${heading('Que se sume el grupo', 'Comparte el QR o el código de la sala.')}<div class="qr-box"><img src="/api/rooms/${s.code}/qr" alt="QR para entrar a la sala ${s.code}" width="260" height="260"></div><div class="center"><p class="eyebrow">CÓDIGO DE SALA</p><p class="room-code">${s.code}</p></div><div class="share-actions">${btn(`${icon('copy')}Copiar código`, 'copy-code', '', '', false)}${btn(`${icon('share')}Compartir`, 'share', '', '', false)}</div>${notice(s.transport === 'poll' ? 'Comparte este enlace o QR. Cada persona puede entrar con Wi-Fi o datos móviles.' : 'Para entrar, los celulares y este Mac deben estar conectados a la misma red Wi-Fi.', 'wifi')}<p class="small center muted">${esc(s.shareUrl)}</p><div class="buttons push-bottom">${btn(`Ver participantes · ${s.members.filter(p => p.participates).length}`, 'room')}<p class="small center muted">Cada persona entra desde su celular.</p></div>`);
+  if (externalApi && ui.qr?.code !== s.code && !qrLoading) void loadQr(s.code);
+  return page(`${topbar('room')}${heading('Que se sume el grupo', 'Comparte el QR o el código de la sala.')}<div class="qr-box"><img src="${externalApi ? (ui.qr?.code === s.code ? ui.qr.src : 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E') : `/api/rooms/${s.code}/qr`}" alt="QR para entrar a la sala ${s.code}" width="260" height="260"></div><div class="center"><p class="eyebrow">CÓDIGO DE SALA</p><p class="room-code">${s.code}</p></div><div class="share-actions">${btn(`${icon('copy')}Copiar código`, 'copy-code', '', '', false)}${btn(`${icon('share')}Compartir`, 'share', '', '', false)}</div>${notice(s.transport === 'poll' ? 'Comparte este enlace o QR. Cada persona puede entrar con Wi-Fi o datos móviles.' : 'Para entrar, los celulares y este Mac deben estar conectados a la misma red Wi-Fi.', 'wifi')}<p class="small center muted">${esc(s.shareUrl)}</p><div class="buttons push-bottom">${btn(`Ver participantes · ${s.members.filter(p => p.participates).length}`, 'room')}<p class="small center muted">Cada persona entra desde su celular.</p></div>`);
 }
 function renderLobby(s) {
   const players = s.members.filter(p => p.participates), host = s.me.isHost;
@@ -252,7 +280,7 @@ async function performAction(action, element) {
     case 'close-room': showModal({ kind: 'confirm', title: '¿Terminamos por hoy?', text: 'La sala se cerrará para todos. No podrán entrar más personas.', confirm: 'Cerrar sala', action: 'close', danger: true }); break;
     case 'leave': showModal({ kind: 'confirm', title: '¿Sales de la sala?', text: 'Si quieres volver después, tendrás que inscribirte nuevamente.', confirm: 'Salir de la sala', action: 'leave', danger: true }); break;
     case 'member': showModal({ kind: 'confirm', title: `¿Retirar a ${nameOf(element.dataset.id)}?`, text: 'Se quitará su inscripción y se cerrará su acceso a esta sala.', confirm: 'Retirar participante', action: 'remove', targetId: element.dataset.id, danger: true }); break;
-    case 'confirm-action': { const m = ui.modal; ui.modal = null; await mutate(m.action, { confirm: true, memberId: m.targetId }, m.context); if (m.action === 'leave') { stream?.close(); ui.room = null; history.replaceState(null, '', '/'); go('welcome'); } break; }
+    case 'confirm-action': { const m = ui.modal; ui.modal = null; await mutate(m.action, { confirm: true, memberId: m.targetId }, m.context); if (m.action === 'leave') { stream?.close(); ui.room = null; history.replaceState(null, '', homePath); go('welcome'); } break; }
     case 'catalog': await openCatalog(); break;
     case 'edit-concept': ui.edit = { ...ui.catalog.concepts.find(c => c.id === element.dataset.id) }; go('edit', 'catalog'); break;
     case 'add-concept': ui.edit = { word: '', category: ui.filter, enabled: true }; go('edit', 'catalog'); break;

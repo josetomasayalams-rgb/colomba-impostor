@@ -18,3 +18,10 @@ La nube utiliza el mismo motor de reglas que Node, con persistencia D1 y control
 Las pruebas móviles utilizan Chromium con pantallas y sesiones independientes simuladas. No sustituyen una comprobación en iPhone/Safari y Android físicos. Las pistas y la conversación se realizan en voz alta, fuera de la aplicación. La sincronización online consulta cambios cada 1,5 segundos aproximadamente y depende de la conexión del teléfono y del servicio de alojamiento.
 
 GitHub Actions comprueba cambios del repositorio. Publicar en GitHub no despliega automáticamente Sites: cada publicación debe guardar y desplegar la versión correspondiente mediante la integración autenticada, manteniendo el mismo proyecto y la misma base D1.
+
+## Preparación de GitHub Pages (versión 1.2)
+
+- 33 pruebas de backend, reglas y controles de origen aprobadas.
+- 2 recorridos adicionales aprobados con la interfaz en `/colomba-impostor/` y la API en un origen distinto: partida completa, QR con invitación a Pages, recarga conservando identidad, tarjetas y votos privados, rechazo de otros orígenes y permisos del anfitrión.
+- Los recorridos comprueban que no se envían cookies a la API y que no quedan roles ni conceptos en el almacenamiento local.
+- El backend independiente y el enlace GitHub Pages todavía requieren conectar la cuenta Cloudflare. La versión anterior publicada en Sites corresponde al commit anterior; no se ha sustituido ni eliminado.
