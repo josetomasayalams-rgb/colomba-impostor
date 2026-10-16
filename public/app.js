@@ -15,7 +15,7 @@ const sessions = stored('colomba.github.sessions', {});
 let stream, toastTimer, syncing = false, syncAgain = false, lastLayout = '', modalFocusKey = '';
 const current = () => ui.room;
 const active = s => ['reveal', 'clues', 'discussion', 'voting', 'tie', 'paused'].includes(s.phase);
-const ctx = () => ({ code: ui.room?.code, roundId: ui.room?.round?.id, revision: ui.room?.revision, ballotId: ui.room?.round?.ballotId });
+const ctx = () => ({ code: ui.room?.code, roundId: ui.room?.round?.id, revision: ui.room?.revision, ballotId: ui.room?.round?.ballotId, turnIndex: ui.room?.round?.turnIndex });
 const nameOf = id => ui.room?.round?.players.find(p => p.id === id)?.name ?? ui.room?.members.find(p => p.id === id)?.name ?? 'Participante';
 const personOf = id => ui.room?.round?.players.find(p => p.id === id) ?? ui.room?.members.find(p => p.id === id);
 function toast(message, error = false) { clearTimeout(toastTimer); const node = $('#toast'); node.textContent = message; node.className = `toast${error ? ' error' : ''}`; node.hidden = false; toastTimer = setTimeout(() => { node.hidden = true; }, 5000); }
@@ -81,7 +81,7 @@ function connect() {
 }
 async function enter(state, view = 'room') { applyState(state); ui.view = view; ui.secret = null; ui.hostPanel = false; ui.error = ''; history.replaceState(null, '', `${homePath}?sala=${state.code}`); connect(); render(); }
 async function mutate(action, body = {}, context = ctx()) {
-  const retryable = new Set(['begin', 'advance', 'discussion', 'voting', 'close-vote', 'pause', 'resume']);
+  const retryable = new Set(['begin', 'advance', 'skip-turn', 'discussion', 'voting', 'close-vote', 'pause', 'resume']);
   const position = state => JSON.stringify([state?.code, state?.phase, state?.round?.id, state?.round?.turnIndex, state?.round?.ballotId]);
   const originalPosition = position(ui.room);
   let state;
@@ -117,7 +117,7 @@ function colorPicker() { return `<div class="color-picker" role="group" aria-lab
 function toggle(name, label, checked, extra = '') { return `<label class="toggle"><input type="checkbox" name="${name}" aria-label="${label}" ${checked ? 'checked' : ''} ${extra}><span class="toggle-track"></span></label>`; }
 function categorySummary() { return ui.form.categories.length === 1 ? categories.find(c => c.id === ui.form.categories[0]).name : `${ui.form.categories.length} categorías elegidas`; }
 function setupRows() {
-  return `<div class="settings-box"><div class="setting-row"><span>Impostores</span><span class="badge">1</span></div><div class="setting-row"><span>Vueltas de pistas</span><div class="segments">${[1, 2].map(n => `<button type="button" data-action="vueltas" data-value="${n}" class="${ui.form.vueltas === n ? 'active' : ''}" aria-pressed="${ui.form.vueltas === n}">${n}</button>`).join('')}</div></div><div class="setting-row"><span>Tiempo por pista<small>El anfitrión avanza los turnos.</small></span><select class="select-small" name="seconds" aria-label="Tiempo por pista">${[0, 20, 30, 45, 60].map(n => `<option value="${n}" ${ui.form.seconds === n ? 'selected' : ''}>${n ? `${n} segundos` : 'Sin límite'}</option>`).join('')}</select></div><div class="setting-row"><span>También voy a jugar</span>${toggle('playing', 'También voy a jugar', ui.form.playing)}</div></div>${btn(`${icon('shell')}${esc(categorySummary())}${icon('arrow')}`, 'categories', '', '', false)}`;
+  return `<div class="settings-box"><div class="setting-row"><span>Impostores</span><span class="badge">1</span></div><div class="setting-row"><span>Vueltas de pistas</span><div class="segments">${[1, 2].map(n => `<button type="button" data-action="vueltas" data-value="${n}" class="${ui.form.vueltas === n ? 'active' : ''}" aria-pressed="${ui.form.vueltas === n}">${n}</button>`).join('')}</div></div><div class="setting-row"><span>Tiempo por pista<small>Cada persona puede pasar su turno.</small></span><select class="select-small" name="seconds" aria-label="Tiempo por pista">${[0, 20, 30, 45, 60].map(n => `<option value="${n}" ${ui.form.seconds === n ? 'selected' : ''}>${n ? `${n} segundos` : 'Sin límite'}</option>`).join('')}</select></div><div class="setting-row"><span>También voy a jugar</span>${toggle('playing', 'También voy a jugar', ui.form.playing)}</div></div>${btn(`${icon('shell')}${esc(categorySummary())}${icon('arrow')}`, 'categories', '', '', false)}`;
 }
 function renderWelcome() {
   return page(`<header class="topbar"><span class="wordmark">colomba${icon('shell')}</span></header><div class="welcome-main">${shellSun()}<p class="eyebrow">BABY SHOWER</p><h1>El impostor de<strong>Colomba</strong></h1><p class="tagline">Una palabra. Muchas sospechas.</p><p class="intro-note">Celebremos su llegada jugando juntos.</p><span class="pill">Se juega en grupo, desde tu celular</span></div><div class="buttons">${btn(`Entrar a una sala ${icon('arrow', 'arrow')}`, 'join')}${btn('Crear una sala', 'create', '')}${ui.room && ui.room.phase !== 'closed' ? textButton('Volver a mi sala', 'room') : textButton('Cómo jugar', 'rules')}</div><p class="welcome-footer">Una pequeña gran bienvenida</p>`, 'welcome');
@@ -175,7 +175,7 @@ function timerValue(deadline) { return deadline == null ? '∞' : Math.max(0, Ma
 function renderClues(s) {
   const turn = s.round.turn, p = personOf(turn.playerId), own = p.id === s.me.id;
   const next = s.round.players; // El siguiente nombre se publica únicamente cuando llega su turno.
-  return page(`${topbar('home', true)}<div class="round-strip"><span>Ronda ${s.round.number}</span><span>Vuelta ${turn.vuelta} de ${s.round.vueltas}</span></div>${heading(own ? `Te toca, ${esc(s.me.name)}` : `Ahora habla ${esc(p.name)}`, own ? 'Di una palabra relacionada.' : 'Escucha su pista. Puede decir mucho.')}<div class="timer-art"><div class="timer-circle">${own ? `<span class="timer-number" data-timer="${turn.deadline ?? ''}">${timerValue(turn.deadline)}</span><span class="timer-label">${turn.deadline ? 'segundos' : 'sin límite'}</span>` : avatar(p, 'large')}</div>${!own ? `<span class="timer-label"><strong data-timer="${turn.deadline ?? ''}">${timerValue(turn.deadline)}</strong> ${turn.deadline ? 'segundos' : 'sin límite'}</span>` : ''}</div><p class="small center">${own ? 'Una pista, sin revelar el concepto.' : 'Las pistas se dicen en voz alta.'}</p>${own ? '<div class="status-bar coral">El grupo te está escuchando</div>' : ''}<p class="small center muted">Turno ${s.round.turnIndex + 1} de ${s.round.totalTurns} · ${next.length} jugadores</p><div class="buttons push-bottom">${s.me.isHost ? btn('Siguiente turno', 'advance') : ''}${s.me.inRound ? btn(`${icon('eye')}Ver mi tarjeta`, 'card', '') : ''}${s.me.isHost ? textButton(`${icon('pause')}Pausar ronda`, 'pause') : ''}</div>`);
+  return page(`${topbar('home', true)}<div class="round-strip"><span>Ronda ${s.round.number}</span><span>Vuelta ${turn.vuelta} de ${s.round.vueltas}</span></div>${heading(own ? `Te toca, ${esc(s.me.name)}` : `Ahora habla ${esc(p.name)}`, own ? 'Di una palabra relacionada.' : 'Escucha su pista. Puede decir mucho.')}<div class="timer-art"><div class="timer-circle">${own ? `<span class="timer-number" data-timer="${turn.deadline ?? ''}">${timerValue(turn.deadline)}</span><span class="timer-label">${turn.deadline ? 'segundos' : 'sin límite'}</span>` : avatar(p, 'large')}</div>${!own ? `<span class="timer-label"><strong data-timer="${turn.deadline ?? ''}">${timerValue(turn.deadline)}</strong> ${turn.deadline ? 'segundos' : 'sin límite'}</span>` : ''}</div><p class="small center">${own ? 'Una pista, sin revelar el concepto. Cuando termines, pasa tu turno.' : 'Las pistas se dicen en voz alta.'}</p>${own ? '<div class="status-bar coral">El grupo te está escuchando</div>' : ''}<p class="small center muted">Turno ${s.round.turnIndex + 1} de ${s.round.totalTurns} · ${next.length} jugadores</p><div class="buttons push-bottom">${own ? btn('Pasar mi turno', 'skip-turn') : s.me.isHost ? btn('Siguiente turno', 'advance') : ''}${s.me.inRound ? btn(`${icon('eye')}Ver mi tarjeta`, 'card', '') : ''}${s.me.isHost ? textButton(`${icon('pause')}Pausar ronda`, 'pause') : ''}</div>`);
 }
 function renderDiscussion(s) {
   return page(`${roundTop(s)}${heading('¿Quién levantó sospechas?', 'Ahora pueden conversar y comparar pistas.')}<div class="circle-art">${icon('chat')}</div>${miniRoster(s.round.players)}${notice(s.me.isHost ? 'Cuando el grupo esté listo, abre la votación.' : 'El anfitrión abrirá la votación cuando estén listos.', 'chat', 'sage')}<div class="buttons push-bottom">${s.me.isHost ? btn('Abrir votación', 'voting') : ''}${s.me.inRound ? btn(`${icon('eye')}Ver mi tarjeta`, 'card', '') : ''}<p class="small center muted">Escucha, pregunta y decide.</p></div>`);
@@ -283,7 +283,7 @@ async function performAction(action, element) {
     case 'card': ui.secret = await request(`/api/rooms/${current().code}/card`, { roundId: current().round.id }); render(); break;
     case 'hide-card': ui.secret = null; render(); break;
     case 'ready': ui.secret = null; await mutate('ready'); break;
-    case 'begin': case 'advance': case 'voting': case 'pause': case 'resume': await mutate(action); break;
+    case 'begin': case 'advance': case 'skip-turn': case 'voting': case 'pause': case 'resume': await mutate(action); break;
     case 'host': if (!current()?.me.isHost) break; if (['lobby', 'results'].includes(current().phase)) { setupDraft(); go('room-settings', 'room'); } else { ui.hostPanel = !ui.hostPanel; ui.secret = null; ui.view = 'room'; render(); } break;
     case 'player-view': ui.hostPanel = false; go('room'); break;
     case 'select-vote': ui.selectedVote = element.dataset.id; render(); break;
@@ -307,7 +307,7 @@ async function performAction(action, element) {
 document.addEventListener('click', async event => {
   const el = event.target.closest('[data-action]'); if (!el || el.disabled || ui.busy) return;
   event.preventDefault(); const action = el.dataset.action;
-  const remote = ['start', 'card', 'ready', 'begin', 'advance', 'voting', 'pause', 'resume', 'send-vote', 'confirm-action', 'catalog', 'retry'].includes(action);
+  const remote = ['start', 'card', 'ready', 'begin', 'advance', 'skip-turn', 'voting', 'pause', 'resume', 'send-vote', 'confirm-action', 'catalog', 'retry'].includes(action);
   if (remote) { ui.busy = true; for (const b of document.querySelectorAll('.btn')) b.disabled = true; }
   try { await performAction(action, el); }
   catch (e) { ui.error = e.message; toast(e.message, true); if (e.status === 409 && ui.room) await sync(); }

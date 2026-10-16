@@ -14,12 +14,12 @@ async function action(page, code, name, body = {}) {
     const token = JSON.parse(localStorage.getItem('colomba.github.sessions'))[code].token;
     const headers = { Authorization: `Bearer ${token}`, 'X-Colomba-Session': 'token' };
     const s = await (await fetch(`${api}/api/rooms/${code}`, { credentials: 'omit', headers })).json();
-    const r = await fetch(`${api}/api/rooms/${code}/${name}`, { method: 'POST', credentials: 'omit', headers: { ...headers, 'Content-Type': 'application/json', 'X-Colomba-Intent': 'play', 'X-CSRF-Token': s.me.csrf }, body: JSON.stringify({ revision: s.revision, roundId: s.round?.id, ballotId: s.round?.ballotId, ...body }) });
+    const r = await fetch(`${api}/api/rooms/${code}/${name}`, { method: 'POST', credentials: 'omit', headers: { ...headers, 'Content-Type': 'application/json', 'X-Colomba-Intent': 'play', 'X-CSRF-Token': s.me.csrf }, body: JSON.stringify({ revision: s.revision, roundId: s.round?.id, ballotId: s.round?.ballotId, turnIndex: s.round?.turnIndex, ...body }) });
     if (!r.ok) throw new Error(`API action failed: ${r.status}`);
     return r.json();
   }, { api, code, name, body });
 }
-test('GitHub project path and separate API support private cards, QR, reload, votes and results without API cookies', async ({ browser }) => {
+test('GitHub Pages supports private cards, each player passing their turn, safe host races, votes and results', async ({ browser }) => {
   const contexts = [], pages = [], errors = [], requests = [];
   let code;
   try {
@@ -49,13 +49,14 @@ test('GitHub project path and separate API support private cards, QR, reload, vo
     }
     await expect(host.getByText('Participantes · 4')).toBeVisible();
     await host.getByRole('button', { name: 'Iniciar ronda', exact: true }).click();
-    const roles = [];
+    const roles = [], playerIds = [];
     for (let i = 0; i < 4; i++) {
       const p = pages[i]; await p.getByRole('button', { name: 'Ver mi tarjeta', exact: true }).click();
       await expect(p.getByRole('button', { name: 'Ocultar tarjeta', exact: true })).toBeVisible();
       const impostor = Boolean(await p.locator('.secret-card.impostor').count());
       roles.push({ impostor, concept: impostor ? null : await p.locator('.secret-card h2').textContent() });
       const s = await apiState(p, code); expect(s.round).not.toHaveProperty('concept'); expect(s.round).not.toHaveProperty('impostorId');
+      playerIds.push(s.me.id);
       const storage = await p.evaluate(() => localStorage.getItem('colomba.github.sessions'));
       expect(storage).not.toContain('impostor'); if (!impostor) expect(storage).not.toContain(roles.at(-1).concept);
       await p.getByRole('button', { name: 'Ya la vi', exact: true }).click();
@@ -88,7 +89,41 @@ test('GitHub project path and separate API support private cards, QR, reload, vo
     await expect.poll(async () => (await apiState(host, code)).round.turnIndex).toBe(1);
     expect(advanceRequests).toBe(2);
     await host.getByRole('button', { name: 'Volver a mi pantalla', exact: true }).click();
-    await action(host, code, 'discussion', { confirm: true });
+    await host.unroute(`${api}/api/rooms/${code}/advance`);
+    let playerHostRace = false, participantPassed = false;
+    for (;;) {
+      const before = await apiState(host, code);
+      if (before.phase !== 'clues') { expect(before.phase).toBe('discussion'); break; }
+      const index = playerIds.indexOf(before.round.turn.playerId), player = pages[index];
+      const pass = player.getByRole('button', { name: 'Pasar mi turno', exact: true });
+      await expect(pass).toBeVisible();
+      await expect(player.getByText(`Turno ${before.round.turnIndex + 1} de ${before.round.totalTurns}`, { exact: false })).toBeVisible();
+      for (let i = 1; i < 4; i++) if (i !== index) await expect(pages[i].getByRole('button', { name: 'Pasar mi turno', exact: true })).toHaveCount(0);
+      if (index !== 0 && !playerHostRace) {
+        let intercepted = 0;
+        await player.route(`${api}/api/rooms/${code}/skip-turn`, async route => {
+          intercepted++;
+          if (intercepted === 1) await action(host, code, 'advance');
+          await route.continue();
+        });
+        await pass.click();
+        await expect(pass).toHaveCount(0);
+        expect(intercepted).toBe(1);
+        await player.unroute(`${api}/api/rooms/${code}/skip-turn`);
+        playerHostRace = true;
+      } else {
+        if (index !== 0) {
+          await mkdir('evidence', { recursive: true });
+          await player.screenshot({ path: 'evidence/pages-pass-turn.png', fullPage: true });
+          expect(await player.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+          participantPassed = true;
+        }
+        await pass.click();
+        await expect(pass).toHaveCount(0);
+      }
+      await expect.poll(async () => (await apiState(host, code)).round.turnIndex).toBe(before.round.turnIndex + 1);
+    }
+    expect(playerHostRace).toBe(true); expect(participantPassed).toBe(true);
     await action(host, code, 'voting');
     const imp = roles.findIndex(r => r.impostor);
     for (let i = 0; i < 4; i++) {

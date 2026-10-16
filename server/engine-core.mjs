@@ -150,7 +150,7 @@ export class GameEngineCore extends Signal {
         fail(Number.isInteger(body.revision) && body.revision === room.revision, 409, 'La sala cambió. Revisa el estado y vuelve a intentarlo.', 'STALE_STATE');
       }
       const r = room.round;
-      if (['view', 'ready', 'vote', 'begin', 'advance', 'discussion', 'voting', 'close-vote', 'pause', 'resume', 'cancel'].includes(action)) {
+      if (['view', 'ready', 'vote', 'begin', 'advance', 'skip-turn', 'discussion', 'voting', 'close-vote', 'pause', 'resume', 'cancel'].includes(action)) {
         fail(r && body.roundId === r.id, 409, 'Esta acción pertenece a otra ronda.', 'STALE_ROUND');
       }
       switch (action) {
@@ -181,8 +181,14 @@ export class GameEngineCore extends Signal {
         case 'begin':
           fail(room.phase === 'reveal' && r.ready.length === r.players.length, 409, 'Todavía falta que alguien revise y confirme su tarjeta.');
           room.phase = 'clues'; r.deadline = r.seconds ? this.now() + r.seconds * 1000 : null; break;
+        case 'skip-turn':
         case 'advance':
           fail(room.phase === 'clues', 409, 'Los turnos no están activos.');
+          if (action === 'skip-turn') {
+            fail(Number.isInteger(body.turnIndex) && body.turnIndex === r.turnIndex, 409, 'Ese turno ya cambió. Revisa a quién le toca.', 'STALE_TURN');
+            fail(r.order[r.turnIndex % r.order.length] === me.id, 403, 'Solo puedes pasar tu propio turno.', 'TURN_REQUIRED');
+            fail(Number.isInteger(body.revision) && body.revision === room.revision, 409, 'La sala cambió. Revisa el estado y vuelve a intentarlo.', 'STALE_STATE');
+          }
           r.turnIndex++;
           if (r.turnIndex >= r.players.length * r.vueltas) { room.phase = 'discussion'; r.deadline = null; }
           else r.deadline = r.seconds ? this.now() + r.seconds * 1000 : null;

@@ -18,7 +18,7 @@ El servidor funciona en la nube: **el Mac puede estar apagado**. El anfitrión d
 
 - Un impostor elegido al azar; el resto recibe el mismo concepto.
 - Anfitrión jugador o espectador, hasta 24 jugadores reales.
-- Una o dos vueltas de pistas, con tiempo orientativo o sin límite. El anfitrión avanza los turnos.
+- Una o dos vueltas de pistas, con tiempo orientativo o sin límite. Quien tiene el turno puede pasarlo desde su celular; el anfitrión también puede avanzar.
 - Catálogo de 50 conceptos y palabras personalizadas por sala.
 - Votos privados, sin voto propio. Se publican los totales al terminar.
 - Empate: segunda votación entre las personas empatadas; si persiste, gana el impostor.

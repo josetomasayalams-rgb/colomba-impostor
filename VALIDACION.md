@@ -29,3 +29,11 @@ GitHub Actions comprueba cambios del repositorio. Publicar en GitHub no desplieg
 ## Ajuste para el plan gratuito
 
 35 pruebas de reglas/backend y controles de acceso aprobadas, incluidas dos comprobaciones del presupuesto de consultas automáticas y de protección frente a una frecuencia inválida. La actualización se adapta al número de participantes; se eliminó una consulta periódica redundante en el transporte online. Las pruebas de Pages siguen comprobando la partida completa y el ingreso tardío justo al comenzar las pistas, sin saltar turnos por una solicitud duplicada.
+
+## Pasar el propio turno (versión 1.2.1)
+
+- La persona que está hablando tiene el botón **Pasar mi turno**. Pasa al siguiente jugador y reinicia su tiempo; el último turno abre la conversación. El anfitrión conserva su control para avanzar.
+- El servidor valida la identidad, la ronda, el índice de turno y la revisión de la sala. Rechaza acciones de otros jugadores, espectadores, llegadas tardías, rondas pausadas y solicitudes antiguas o duplicadas, incluso si la misma persona vuelve a tener el turno en la siguiente vuelta.
+- 39 pruebas de backend aprobadas, incluidas cuatro pruebas nuevas que cubren ambos tiempos (20 segundos y sin límite), dos vueltas completas, permisos, pausa, rondas antiguas y las dos órdenes posibles de un avance simultáneo del anfitrión y el jugador.
+- 5 recorridos de navegador Node y 2 recorridos con interfaz Pages y API D1 separadas aprobados localmente. El recorrido móvil de Pages comprueba el botón visible solo para quien tiene el turno, que el anfitrión pueda avanzar mientras el jugador pulsa, que no se salten dos turnos y que después se complete la votación.
+- La entrada JavaScript tiene una versión en su URL para que la recarga solicite la interfaz nueva al actualizar desde 1.2.0.

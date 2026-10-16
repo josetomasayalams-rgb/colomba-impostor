@@ -13,7 +13,7 @@ function fixture(t, options = {}) {
   const code = host.code;
   const guests = ['Fran', 'Dani', 'Nico', ...(options.playing === false ? ['Paz'] : [])].map(name => engine.join(code, { name }));
   const people = [host, ...guests], state = who => engine.state(code, (who ?? host).memberId);
-  const act = (action, body = {}, who = host) => { const s = state(); return engine.perform(code, who.memberId, action, { revision: s.revision, roundId: s.round?.id, ballotId: s.round?.ballotId, ...body }); };
+  const act = (action, body = {}, who = host) => { const s = state(); return engine.perform(code, who.memberId, action, { revision: s.revision, roundId: s.round?.id, ballotId: s.round?.ballotId, turnIndex: s.round?.turnIndex, ...body }); };
   const start = () => act('start');
   const ready = () => { for (const p of people.filter(p => state(p).me.inRound)) { engine.privateCard(code, p.memberId, state().round.id); act('ready', {}, p); } act('begin'); };
   const voting = () => { if (state().phase === 'lobby') start(); if (state().phase === 'reveal') ready(); act('discussion', { confirm: true }); act('voting'); };
@@ -92,6 +92,59 @@ test('two complete clue turns, timer pause and resume, and transition into discu
   f.tick(100000); f.act('resume'); assert.equal(f.state().round.turn.deadline - f.state().serverNow, 15000);
   for (let i = 0; i < 8; i++) f.act('advance');
   assert.equal(f.state().phase, 'discussion'); rejects(() => f.act('advance'), 409);
+});
+test('each current player can pass their own turn, reset its timer and complete both laps', t => {
+  for (const seconds of [20, 0]) {
+    const f = fixture(t); f.act('settings', { settings: { seconds } }); f.start(); f.ready();
+    for (let i = 0; i < 8; i++) {
+      const before = f.state(), player = f.people.find(p => p.memberId === before.round.turn.playerId);
+      f.tick(i % 2 ? 25000 : 2000);
+      f.act('skip-turn', {}, player);
+      const after = f.state(); assert.equal(after.round.turnIndex, i + 1);
+      if (i < 7) {
+        assert.equal(after.phase, 'clues');
+        assert.equal(after.round.turn.deadline, seconds ? after.serverNow + seconds * 1000 : null);
+      } else { assert.equal(after.phase, 'discussion'); assert.equal(after.round.turn, null); }
+    }
+  }
+});
+test('other players, late arrivals and a spectator host cannot pass somebody else’s turn', t => {
+  const f = fixture(t, { playing: false }); f.start(); f.ready();
+  const late = f.engine.join(f.code, { name: 'Cami' }), before = f.state();
+  const others = [...f.people, late].filter(p => p.memberId !== before.round.turn.playerId);
+  for (const p of others) rejects(() => f.act('skip-turn', { memberId: before.round.turn.playerId, isHost: true }, p), 403, 'TURN_REQUIRED');
+  rejects(() => f.act('advance', {}, f.guests[0]), 403, 'HOST_REQUIRED');
+  assert.equal(f.state().round.turnIndex, 0);
+  f.act('advance'); assert.equal(f.state().round.turnIndex, 1);
+});
+test('passing requires the active phase, matching round and explicit turn context', t => {
+  const f = fixture(t); f.start();
+  rejects(() => f.act('skip-turn'), 409);
+  f.ready(); const player = f.people.find(p => p.memberId === f.state().round.turn.playerId);
+  for (const turnIndex of [undefined, '0', -1, 1]) rejects(() => f.act('skip-turn', { turnIndex }, player), 409, 'STALE_TURN');
+  rejects(() => f.act('skip-turn', { roundId: 'another-round' }, player), 409, 'STALE_ROUND');
+  rejects(() => f.act('skip-turn', { revision: f.state().revision - 1 }, player), 409, 'STALE_STATE');
+  f.act('pause'); rejects(() => f.act('skip-turn', {}, player), 409);
+  f.act('resume'); f.act('skip-turn', {}, player); assert.equal(f.state().round.turnIndex, 1);
+  const oldRoundId = f.state().round.id;
+  f.act('cancel', { confirm: true }); f.start(); f.ready();
+  rejects(() => f.act('skip-turn', { roundId: oldRoundId }, player), 409, 'STALE_ROUND');
+});
+test('simultaneous host and player advances or repeated clicks consume only one turn', t => {
+  for (const winner of ['advance', 'skip-turn']) {
+    const f = fixture(t); f.start(); f.ready(); f.act('advance');
+    const s = f.state(), player = f.people.find(p => p.memberId === s.round.turn.playerId);
+    const body = { revision: s.revision, roundId: s.round.id, turnIndex: s.round.turnIndex };
+    const submit = action => f.engine.perform(f.code, (action === 'advance' ? f.host : player).memberId, action, body);
+    submit(winner);
+    rejects(() => submit(winner), 409);
+    rejects(() => submit(winner === 'advance' ? 'skip-turn' : 'advance'), 409);
+    assert.equal(f.state().round.turnIndex, s.round.turnIndex + 1);
+    for (let i = 0; i < 3; i++) f.act('advance');
+    assert.equal(f.state().round.turn.playerId, player.memberId);
+    rejects(() => f.act('skip-turn', { turnIndex: body.turnIndex }, player), 409, 'STALE_TURN');
+    assert.equal(f.state().round.turnIndex, 5);
+  }
 });
 test('late arrivals get no card or vote and become eligible in the next round', t => {
   const f = fixture(t); f.start(); const late = f.engine.join(f.code, { name: 'Cami' });
