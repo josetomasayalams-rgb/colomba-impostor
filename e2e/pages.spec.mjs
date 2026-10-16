@@ -62,7 +62,32 @@ test('GitHub project path and separate API support private cards, QR, reload, vo
     }
     expect(roles.filter(r => r.impostor)).toHaveLength(1);
     expect(new Set(roles.filter(r => r.concept).map(r => r.concept)).size).toBe(1);
+    // Force a real revision race after the click was sent but before it reaches D1.
+    let injected = false;
+    await host.route(`${api}/api/rooms/${code}/begin`, async route => {
+      if (!injected) {
+        injected = true;
+        const late = await apiRequest.newContext({ baseURL: api });
+        const joined = await late.post(`/api/rooms/${code}/join`, { headers: { Origin: new URL(front).origin, 'X-Colomba-Intent': 'play', 'X-Colomba-Session': 'token' }, data: { name: 'QA último segundo' } });
+        expect(joined.status()).toBe(201); await late.dispose();
+      }
+      await route.continue();
+    });
     await host.getByRole('button', { name: 'Comenzar las pistas', exact: true }).click();
+    await expect.poll(async () => (await apiState(host, code)).phase).toBe('clues');
+    expect(injected).toBe(true);
+    let advanceRequests = 0;
+    await host.route(`${api}/api/rooms/${code}/advance`, async route => {
+      advanceRequests++;
+      if (advanceRequests === 1) await action(host, code, 'advance');
+      await route.continue();
+    });
+    await host.getByRole('button', { name: 'Controles del anfitrión', exact: true }).click();
+    await host.getByRole('button', { name: 'Siguiente turno', exact: true }).click();
+    await expect(host.getByRole('button', { name: 'Siguiente turno', exact: true })).toBeEnabled();
+    await expect.poll(async () => (await apiState(host, code)).round.turnIndex).toBe(1);
+    expect(advanceRequests).toBe(2);
+    await host.getByRole('button', { name: 'Volver a mi pantalla', exact: true }).click();
     await action(host, code, 'discussion', { confirm: true });
     await action(host, code, 'voting');
     const imp = roles.findIndex(r => r.impostor);

@@ -1,4 +1,8 @@
 import { defineConfig } from '@playwright/test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const storage = mkdtempSync(join(tmpdir(), 'colomba-pages-'));
 export default defineConfig({
   testDir: './e2e', testMatch: '**/pages.spec.mjs', fullyParallel: false, workers: 1, timeout: 120000,
   expect: { timeout: 15000 },
@@ -6,6 +10,6 @@ export default defineConfig({
   reporter: [['list'], ['json', { outputFile: 'evidence/pages-results.json' }]],
   webServer: [
     { command: 'node scripts/preview-pages.mjs', url: 'http://127.0.0.1:4187/colomba-impostor/', timeout: 15000, reuseExistingServer: false },
-    { command: 'node node_modules/wrangler/bin/wrangler.js dev --ip 127.0.0.1 --port 4184 --inspector-port 0 --local', url: 'http://127.0.0.1:4184/api/health', timeout: 30000, reuseExistingServer: false },
+    { command: 'node node_modules/wrangler/bin/wrangler.js d1 migrations apply DB --local --persist-to "$COLOMBA_TEST_STORAGE" && node node_modules/wrangler/bin/wrangler.js dev --ip 127.0.0.1 --port 4184 --inspector-port 0 --local --persist-to "$COLOMBA_TEST_STORAGE"', env: { COLOMBA_TEST_STORAGE: storage }, url: 'http://127.0.0.1:4184/api/health', timeout: 30000, reuseExistingServer: false },
   ],
 });

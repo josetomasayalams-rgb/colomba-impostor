@@ -80,10 +80,26 @@ function connect() {
 }
 async function enter(state, view = 'room') { applyState(state); ui.view = view; ui.secret = null; ui.hostPanel = false; ui.error = ''; history.replaceState(null, '', `${homePath}?sala=${state.code}`); connect(); render(); }
 async function mutate(action, body = {}, context = ctx()) {
-  const state = await request(`/api/rooms/${context.code}/${action}`, { ...context, ...body });
+  const retryable = new Set(['begin', 'advance', 'discussion', 'voting', 'close-vote', 'pause', 'resume']);
+  const position = state => JSON.stringify([state?.code, state?.phase, state?.round?.id, state?.round?.turnIndex, state?.round?.ballotId]);
+  const originalPosition = position(ui.room);
+  let state;
+  try { state = await request(`/api/rooms/${context.code}/${action}`, { ...context, ...body }); }
+  catch (error) {
+    if (error.code !== 'STALE_STATE' || !retryable.has(action)) throw error;
+    const fresh = await request(`/api/rooms/${context.code}`);
+    if (ui.room?.code !== context.code) throw error;
+    applyState(fresh);
+    // A late join, viewed card or readiness update may change the revision.
+    // Retry only if the same round, phase, turn and ballot are still active.
+    // An advance already performed elsewhere must never skip another turn.
+    if (!ui.room || position(ui.room) !== originalPosition) throw error;
+    state = await request(`/api/rooms/${context.code}/${action}`, { ...context, ...body, revision: ui.room.revision });
+  }
   if (action !== 'leave') applyState(state);
   return state;
 }
+
 function go(view, back = ui.view) { ui.secret = null; ui.modal = null; ui.error = ''; ui.back = back; ui.view = view; render(); window.scrollTo({ top: 0, behavior: 'instant' }); }
 function btn(text, action, style = 'primary', extra = '', disabled = false) { return `<button type="button" class="btn ${style}" data-action="${action}" ${extra} ${disabled || ui.busy ? 'disabled' : ''}>${text}</button>`; }
 function textButton(text, action, extra = '', cls = '') { return `<button type="button" class="text-button ${cls}" data-action="${action}" ${extra}>${text}</button>`; }
