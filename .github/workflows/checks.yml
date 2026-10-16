@@ -22,15 +22,7 @@ jobs:
       - run: npm run test:e2e
       - run: npx --no-install wrangler d1 migrations apply DB --local
       - name: Verify cloud backend and mobile flows
-        run: |
-          npx --no-install wrangler dev --ip 127.0.0.1 --port 4184 --inspector-port 0 --local > /tmp/colomba-worker.log 2>&1 &
-          worker_pid=$!
-          trap 'kill "$worker_pid" 2>/dev/null || true' EXIT
-          for attempt in $(seq 1 45); do
-            if curl --fail --silent http://127.0.0.1:4184/api/health; then break; fi
-            sleep 1
-          done
-          npm run test:cloud
+        run: COLOMBA_CLOUD_MANAGED=1 npm run test:cloud
       - name: Verify GitHub Pages frontend with a separate API
         run: |
           COLOMBA_API_ORIGIN=http://127.0.0.1:4184 npm run build:pages
