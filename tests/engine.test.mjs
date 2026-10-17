@@ -43,6 +43,64 @@ test('exactly one impostor, all other cards share a concept; shared snapshots ne
   assert.equal(cards.find(c => c.role === 'impostor').concept, undefined);
   assert.deepEqual(f.engine.privateCard(f.code, f.host.memberId, f.state().round.id), cards[0]);
 });
+test('impostor count is validated on creation and settings, with a default of one', t => {
+  const f = fixture(t);
+  assert.equal(f.state().settings.impostors, 1);
+  for (const impostors of [0, -1, 12, 1.5, '2', null, true]) {
+    rejects(() => f.engine.create({ name: 'Invalid', settings: { impostors } }), 400);
+    rejects(() => f.act('settings', { settings: { impostors } }), 400);
+  }
+  const h = f.engine.create({ name: 'Otra', settings: { impostors: 3 } });
+  assert.equal(f.engine.state(h.code, h.memberId).settings.impostors, 3);
+});
+test('configured roles are unique and private for two, three and eleven impostors', t => {
+  for (const impostors of [2, 3, 11]) {
+    const f = fixture(t, { playing: false });
+    f.act('settings', { settings: { impostors } });
+    const minimum = 2 * impostors + 1;
+    while (f.state().members.filter(p => p.participates).length < minimum - 1) f.people.push(f.engine.join(f.code, { name: `Extra ${f.people.length}` }));
+    rejects(() => f.start(), 409, 'MIN_PLAYERS');
+    f.people.push(f.engine.join(f.code, { name: 'Última' }));
+    f.start();
+    const cards = f.people.slice(1).map(p => f.engine.privateCard(f.code, p.memberId, f.state().round.id));
+    assert.equal(cards.filter(c => c.role === 'impostor').length, impostors);
+    assert.equal(new Set(f.engine.load(f.code).round.impostorIds).size, impostors);
+    assert.equal(new Set(cards.filter(c => c.role === 'player').map(c => c.concept)).size, 1);
+    assert.ok(cards.filter(c => c.role === 'impostor').every(c => !Object.hasOwn(c, 'concept')));
+    assert.ok(!JSON.stringify(f.state()).includes('impostorId'));
+    rejects(() => f.engine.privateCard(f.code, f.host.memberId, f.state().round.id), 403);
+    rejects(() => f.act('settings', { settings: { impostors: 1 } }), 409);
+  }
+});
+test('finding any configured impostor wins; an innocent accusation loses; count can change next round', t => {
+  for (const findImpostor of [true, false]) {
+    const f = fixture(t);
+    f.people.push(f.engine.join(f.code, { name: 'Paz' }));
+    f.act('settings', { settings: { impostors: 2 } }); f.voting();
+    const ids = f.engine.load(f.code).round.impostorIds;
+    const target = findImpostor ? ids[1] : f.people.find(p => !ids.includes(p.memberId)).memberId;
+    for (const p of f.people) f.act('vote', { targetId: p.memberId === target ? f.people.find(x => x.memberId !== target).memberId : target }, p);
+    const result = f.state().round.result;
+    assert.equal(result.winner, findImpostor ? 'group' : 'impostor');
+    assert.equal(result.reason, findImpostor ? 'found' : 'wrong_person');
+    assert.deepEqual(result.impostorIds, ids);
+    f.act('settings', { settings: { impostors: 1 } }); f.start();
+    assert.equal(f.people.map(p => f.engine.privateCard(f.code, p.memberId, f.state().round.id)).filter(c => c.role === 'impostor').length, 1);
+  }
+});
+test('legacy rooms and in-progress rounds retain their original single impostor', t => {
+  const f = fixture(t); f.start();
+  const original = f.people.map(p => f.engine.privateCard(f.code, p.memberId, f.state().round.id));
+  const room = f.engine.load(f.code);
+  delete room.settings.impostors; delete room.round.impostorIds; f.engine.save(room);
+  assert.equal(f.state().settings.impostors, 1);
+  assert.deepEqual(f.people.map(p => f.engine.privateCard(f.code, p.memberId, f.state().round.id)), original);
+  f.voting();
+  const impostor = room.round.impostorId;
+  for (const p of f.people) f.act('vote', { targetId: p.memberId === impostor ? f.host.memberId : impostor }, p);
+  assert.equal(f.state().round.result.winner, 'group');
+  assert.deepEqual(f.state().round.result.impostorIds, [impostor]);
+});
 test('a spectator host receives no role and cannot read any card; four real players are required', t => {
   const f = fixture(t, { playing: false }); f.start();
   assert.equal(f.state().round.playerCount, 4); assert.equal(f.state().me.inRound, false);

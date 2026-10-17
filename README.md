@@ -1,6 +1,6 @@
 # El impostor de Colomba
 
-Juego para celebrar el baby shower de Colomba. Interfaz para celular, entre 4 y 24 jugadores, un impostor y conceptos relacionados con su llegada.
+Juego para celebrar el baby shower de Colomba. Interfaz para celular, entre 4 y 24 jugadores, impostores configurables y conceptos relacionados con su llegada.
 
 **Jugar:** https://josetomasayalams-rgb.github.io/colomba-impostor/
 
@@ -9,14 +9,16 @@ La interfaz se publica desde este repositorio en GitHub Pages. Las salas funcion
 1. El anfitrión abre el enlace, pulsa **Crear una sala** y escribe su nombre.
 2. Comparte el QR, enlace de invitación o código de seis caracteres.
 3. Cada persona entra desde su propio celular. Puede usar Wi-Fi o datos móviles.
-4. Con al menos cuatro jugadores, el anfitrión inicia la ronda.
+4. El anfitrión elige la cantidad de impostores. Se necesitan al menos cuatro jugadores y siempre más jugadores con palabra que impostores.
 5. Cada persona mira su tarjeta en privado, confirma y da pistas en voz alta. Después conversan y votan desde el celular.
 
 El servidor funciona en la nube: **el Mac puede estar apagado**. El anfitrión debe conservar su navegador y sus datos locales para mantener el control de esa sala. Puede recuperar la sala recargando la página en ese mismo navegador. Los participantes deben estar juntos para escuchar las pistas; la aplicación no transmite audio.
 
 ## Reglas y funciones
 
-- Un impostor elegido al azar; el resto recibe el mismo concepto.
+- De 1 a 11 impostores elegidos al azar, sin repetición; el resto recibe el mismo concepto. La cantidad se elige al crear la sala o entre rondas.
+- Mínimo de jugadores: el mayor entre 4 y (2 × impostores + 1). Por ejemplo, 2 impostores requieren 5 jugadores y 3 requieren 7.
+- Cada persona vota por un sospechoso. El grupo gana si descubre a cualquiera de los impostores; un error o un empate persistente da la victoria a los impostores.
 - Anfitrión jugador o espectador, hasta 24 jugadores reales.
 - Una o dos vueltas de pistas, con tiempo orientativo o sin límite. Quien tiene el turno puede pasarlo desde su celular; el anfitrión también puede avanzar.
 - Catálogo de 50 conceptos y palabras personalizadas por sala.
