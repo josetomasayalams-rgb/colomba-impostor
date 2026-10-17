@@ -9,6 +9,7 @@ const key = s => s.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase('es
 const activePhases = new Set(['reveal', 'clues', 'discussion', 'voting', 'tie', 'paused']);
 const editablePhases = new Set(['lobby', 'results']);
 const ttl = 24 * 60 * 60 * 1000;
+const impostorsOf = round => round.impostorIds ?? [round.impostorId];
 export function cleanText(value, max, label) {
   fail(typeof value === 'string', 400, `${label} es obligatorio.`);
   const text = value.normalize('NFC').trim().replace(/\s+/g, ' ');
@@ -17,9 +18,10 @@ export function cleanText(value, max, label) {
 }
 function validateSettings(input = {}, current) {
   fail(input && typeof input === 'object' && !Array.isArray(input), 400, 'La configuración no es válida.');
-  const allowed = ['vueltas', 'seconds', 'categories'];
+  const allowed = ['impostors', 'vueltas', 'seconds', 'categories'];
   fail(Object.keys(input).every(k => allowed.includes(k)), 400, 'Hay una opción de configuración desconocida.');
-  const settings = { vueltas: 2, seconds: 20, categories: ['baby'], ...current, ...input };
+  const settings = { impostors: 1, vueltas: 2, seconds: 20, categories: ['baby'], ...current, ...input };
+  fail(Number.isInteger(settings.impostors) && settings.impostors >= 1 && settings.impostors <= 11, 400, 'Elige entre 1 y 11 impostores.');
   fail([1, 2].includes(settings.vueltas), 400, 'Elige una o dos vueltas.');
   fail([0, 20, 30, 45, 60].includes(settings.seconds), 400, 'El tiempo elegido no es válido.');
   fail(Array.isArray(settings.categories) && settings.categories.length > 0 && settings.categories.length <= 3 && settings.categories.every(c => CATEGORIES.some(x => x.id === c)), 400, 'Elige al menos una categoría válida.');
@@ -50,7 +52,9 @@ export class GameEngineCore extends Signal {
     fail(typeof code === 'string' && /^[A-Z2-9]{6}$/.test(code), 404, 'No encontramos esa sala. Revisa el código.', 'ROOM_NOT_FOUND');
     const row = this.store.get(code);
     fail(row && row.expires_at > this.now(), 404, 'La sala no existe o ya venció. Puedes crear otra.', 'ROOM_NOT_FOUND');
-    return JSON.parse(row.data);
+    const room = JSON.parse(row.data);
+    room.settings = { impostors: 1, ...room.settings };
+    return room;
   }
   save(room) {
     this.store.save(room.code, JSON.stringify(room), room.closedAt ? room.closedAt + ttl : this.now() + ttl);
@@ -136,7 +140,7 @@ export class GameEngineCore extends Signal {
   privateCard(code, memberId, roundId) {
     this.perform(code, memberId, 'view', { roundId });
     const room = this.load(code), r = room.round;
-    return r.impostorId === memberId ? { roundId: r.id, role: 'impostor' } : { roundId: r.id, role: 'player', concept: r.concept };
+    return impostorsOf(r).includes(memberId) ? { roundId: r.id, role: 'impostor' } : { roundId: r.id, role: 'player', concept: r.concept };
   }
   perform(code, memberId, action, body = {}) {
     let changed = true;
@@ -157,7 +161,8 @@ export class GameEngineCore extends Signal {
         case 'start': {
           fail(editablePhases.has(room.phase), 409, 'Ya hay una ronda en curso.');
           const players = room.members.filter(p => p.active && p.participates);
-          fail(players.length >= 4, 409, 'Necesitamos al menos 4 jugadores para comenzar.', 'MIN_PLAYERS');
+          const minimumPlayers = Math.max(4, room.settings.impostors * 2 + 1);
+          fail(players.length >= minimumPlayers, 409, `Necesitamos al menos ${minimumPlayers} jugadores para ${room.settings.impostors === 1 ? 'comenzar' : `jugar con ${room.settings.impostors} impostores`}.`, 'MIN_PLAYERS');
           let pool = room.catalog.filter(c => c.enabled && room.settings.categories.includes(c.category));
           fail(pool.length > 0, 409, 'Activa al menos un concepto de las categorías elegidas.', 'EMPTY_CATALOG');
           const unused = pool.filter(c => !room.used.includes(c.id));
@@ -166,8 +171,11 @@ export class GameEngineCore extends Signal {
           const chosen = pool[this.rng(pool.length)]; room.used.push(chosen.id);
           const order = players.map(p => p.id);
           for (let i = order.length - 1; i > 0; i--) { const j = this.rng(i + 1); [order[i], order[j]] = [order[j], order[i]]; }
+          // Draw roles independently from the public clue order, without replacement.
+          const available = players.map(p => p.id), impostorIds = [];
+          for (let i = 0; i < room.settings.impostors; i++) impostorIds.push(available.splice(this.rng(available.length), 1)[0]);
           room.roundNumber++;
-          room.round = { id: randomUUID(), number: room.roundNumber, players: players.map(p => p.id), names: Object.fromEntries(players.map(({ id, name, color }) => [id, { name, color }])), concept: chosen.word, impostorId: players[this.rng(players.length)].id, order, vueltas: room.settings.vueltas, seconds: room.settings.seconds, viewed: [], ready: [], turnIndex: 0, deadline: null, remaining: null, pausedFrom: null, ballotId: 0, votes: {}, candidates: null, firstTallies: null, result: null };
+          room.round = { id: randomUUID(), number: room.roundNumber, players: players.map(p => p.id), names: Object.fromEntries(players.map(({ id, name, color }) => [id, { name, color }])), concept: chosen.word, impostorId: impostorIds[0], impostorIds, order, vueltas: room.settings.vueltas, seconds: room.settings.seconds, viewed: [], ready: [], turnIndex: 0, deadline: null, remaining: null, pausedFrom: null, ballotId: 0, votes: {}, candidates: null, firstTallies: null, result: null };
           room.phase = 'reveal'; room.recovered = false; break;
         }
         case 'view':
@@ -282,7 +290,8 @@ export class GameEngineCore extends Signal {
       r.firstTallies = tallies; r.candidates = leaders; r.votes = {}; r.ballotId++; room.phase = 'tie'; return;
     }
     const accusedId = leaders.length === 1 ? leaders[0] : null;
-    r.result = { winner: accusedId === r.impostorId ? 'group' : 'impostor', reason: accusedId === null ? 'persistent_tie' : accusedId === r.impostorId ? 'found' : 'wrong_person', impostorId: r.impostorId, accusedId, concept: r.concept, tallies: Object.fromEntries(r.players.map(id => [id, tallies[id] ?? 0])), totalVotes: Object.keys(r.votes).length, expectedVotes: r.players.length, firstTallies: r.firstTallies };
+    const impostorIds = impostorsOf(r), found = impostorIds.includes(accusedId);
+    r.result = { winner: found ? 'group' : 'impostor', reason: accusedId === null ? 'persistent_tie' : found ? 'found' : 'wrong_person', impostorId: r.impostorId, impostorIds, accusedId, concept: r.concept, tallies: Object.fromEntries(r.players.map(id => [id, tallies[id] ?? 0])), totalVotes: Object.keys(r.votes).length, expectedVotes: r.players.length, firstTallies: r.firstTallies };
     room.phase = 'results'; r.deadline = null;
   }
 }

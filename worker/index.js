@@ -124,7 +124,7 @@ const handler = {
       if (path === '/api/health' && request.method === 'GET') {
         if (!env.DB) throw new Error('Database binding unavailable');
         await env.DB.prepare('SELECT code FROM rooms LIMIT 1').first();
-        return response({ ok: true, app: 'colomba', hosting: 'cloud', version: '1.2.1' });
+        return response({ ok: true, app: 'colomba', hosting: 'cloud', version: '1.3.0' });
       }
       if (!path.startsWith('/api/')) {
         if (!['GET', 'HEAD'].includes(request.method)) throw new GameError(405, 'Esta acción no está disponible.');

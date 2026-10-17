@@ -162,3 +162,72 @@ test('cross-origin preflights reject other sites and member tokens cannot take h
     const closed = await client.post(`${path}/close`, { headers: { ...headers, Authorization: `Bearer ${host.sessionToken}`, 'X-CSRF-Token': host.me.csrf }, data: { revision: state.revision, confirm: true } }); expect(closed.status()).toBe(200);
   } finally { await client.dispose(); }
 });
+
+test('host chooses and changes impostor count; mobile rooms distribute and reveal every configured role', async ({ browser }) => {
+  const contexts = [], pages = [];
+  let code;
+  try {
+    for (let i = 0; i < 5; i++) {
+      const context = await browser.newContext({ viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true });
+      contexts.push(context); pages.push(await context.newPage());
+    }
+    const host = pages[0];
+    await host.goto(front);
+    await host.getByRole('button', { name: 'Crear una sala', exact: true }).click();
+    await host.getByLabel('Tu nombre', { exact: true }).fill('QA anfitrión múltiple');
+    await host.getByLabel('Cantidad de impostores').selectOption('3');
+    await expect(host.getByText('Se necesitan al menos 7 jugadores para 3 impostores.', { exact: false })).toBeVisible();
+    await host.getByRole('button', { name: /El mundo de Colomba/ }).click();
+    await host.getByRole('button', { name: 'Usar estas categorías', exact: true }).click();
+    await expect(host.getByLabel('Cantidad de impostores')).toHaveValue('3');
+    await host.getByRole('button', { name: 'Crear sala', exact: true }).click();
+    await expect(host.locator('.room-code')).toBeVisible();
+    code = (await host.locator('.room-code').textContent()).trim();
+    expect((await apiState(host, code)).settings.impostors).toBe(3);
+    await host.reload();
+    await host.getByRole('button', { name: /3 impostores ·/ }).click();
+    await expect(host.getByLabel('Cantidad de impostores')).toHaveValue('3');
+    await host.getByLabel('Cantidad de impostores').selectOption('2');
+    await mkdir('evidence', { recursive: true });
+    await host.screenshot({ path: 'evidence/pages-impostor-count.png', fullPage: true });
+    expect(await host.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await host.getByRole('button', { name: 'Guardar configuración', exact: true }).click();
+    await expect(host.getByRole('button', { name: 'Faltan 4 jugadores', exact: true })).toBeDisabled();
+    for (let i = 1; i < 5; i++) {
+      await pages[i].goto(`${front}?sala=${code}`);
+      await pages[i].getByRole('button', { name: 'Continuar', exact: true }).click();
+      await pages[i].getByLabel('Tu nombre o apodo').fill(`QA múltiple ${i}`);
+      await pages[i].getByRole('button', { name: 'Entrar al juego', exact: true }).click();
+    }
+    await host.getByRole('button', { name: 'Iniciar ronda', exact: true }).click();
+    const cards = [], ids = [];
+    for (const p of pages) {
+      await p.getByRole('button', { name: 'Ver mi tarjeta', exact: true }).click();
+      await expect(p.getByRole('button', { name: 'Ocultar tarjeta', exact: true })).toBeVisible();
+      cards.push(Boolean(await p.locator('.secret-card.impostor').count()));
+      const state = await apiState(p, code);
+      ids.push(state.me.id);
+      expect(state.round).not.toHaveProperty('impostorIds');
+      await p.getByRole('button', { name: 'Ya la vi', exact: true }).click();
+    }
+    expect(cards.filter(Boolean)).toHaveLength(2);
+    await action(host, code, 'begin');
+    await action(host, code, 'discussion', { confirm: true });
+    await action(host, code, 'voting');
+    const target = ids[cards.lastIndexOf(true)];
+    for (let i = 0; i < pages.length; i++) await action(pages[i], code, 'vote', { targetId: ids[i] === target ? ids.find(id => id !== target) : target });
+    await expect(host.getByRole('heading', { name: '¡Encontraron a un impostor!', exact: true })).toBeVisible();
+    await expect(host.locator('.result-identity')).toHaveCount(2);
+    expect((await apiState(host, code)).round.result.impostorIds).toHaveLength(2);
+    await host.getByRole('button', { name: 'Ver todos los votos', exact: true }).click();
+    await expect(host.locator('.tally-name small')).toHaveCount(2);
+    await host.getByRole('button', { name: 'Volver al resultado', exact: true }).click();
+    await host.getByRole('button', { name: 'Revisar configuración y conceptos', exact: true }).click();
+    await host.getByLabel('Cantidad de impostores').selectOption('1');
+    await host.getByRole('button', { name: 'Guardar configuración', exact: true }).click();
+    expect((await apiState(host, code)).settings.impostors).toBe(1);
+  } finally {
+    if (code && pages[0]) await action(pages[0], code, 'close', { confirm: true }).catch(() => {});
+    for (const context of contexts) await context.close();
+  }
+});
